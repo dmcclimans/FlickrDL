@@ -1,0 +1,8 @@
+To build and run the application, download the latest version of exiftool from
+    https://exiftool.org/
+
+1. Download the windows executable
+2. Unzip the file into this folder.
+3. Rename exiftool(-k).exe to exiftool.exe
+
+
