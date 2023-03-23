@@ -1,30 +1,24 @@
 FlickrDL License Information
 ============================
 
-2020-01-14
+2023-03-23
 
 FlickrDL is licensed under the MIT license. You may use the FlickrDL application in any
 way you like. You may copy, distribute and modify the FlickrDL software provided you
 include the copyright notice and license in all copies of the software.
 
-FlickrDL links to libraries that are licensed under the Apache License or under a custom
-license which permits use and redistribution.
+FlickrAlbumSort links to a library that is licensed under the Apache 2.0 License.
 
 FlickrNet
 https://github.com/samjudson/flickr-net
-Apache License.
-
-Ookii.Dialogs.Winforms
-https://github.com/caioproiete/ookii-dialogs-winforms
-Custom license which permits use and redistribution.
+Apache 2.0 License.
 
 FlickrDL uses, but does not link to, the program exiftool.exe. ExifTool is licensed under
 the GNU General Public License (GPL) or the Artistic License. You may use the software in
-any way you like. You may copy, distribute and modify the exiftool software as long as you
-make the source code available.
+any way you like. You may copy and distribute the software. You may modify the exiftool
+software as long as you make the source code available.
 
 exiftool
-Version 11.84 (Jan 10, 2020)
 https://exiftool.org/
 
 
@@ -33,7 +27,7 @@ FlickrDL License
 
 MIT License
 
-Copyright (&copy;) 2020 Don McClimans
+Copyright (&copy;) 2023 Don McClimans
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this
 software and associated documentation files (the "Software"), to deal in the Software

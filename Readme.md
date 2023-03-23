@@ -10,7 +10,7 @@ Flickr account.
 * [Installation](#installation)
 * [Usage](#usage)
 * [Authentication](#authentication)
-* [SQLite Database](#SQLiteDatabase)
+* [Known Issues](#KnownIssues)
 * [License](#license)
 
 ## Features
@@ -24,7 +24,7 @@ Flickr account.
 * When downloading from albums, creates a separate folder for each album.
 
 ## Requirements
-* Requires Windows 7 or later.
+* Requires Windows 10 or later.
 
 ## Installation
 * Go to the FlickrDL
@@ -67,9 +67,10 @@ the specified date range.
 7. Specify the path of the **Output Folder**.
 
     If you download by album, FlickDL will create a subfolder for each album name under
-    the **Output Folder**.
+    the **Output Folder**. Each subfolder must be empty or not exist.
 
     If you download all photos, all the photos will be stored in the **Output Folder**.
+    The **Output Folder** must be empty or not exist.
 
 8. Click the **Download** button to download the files.
 
@@ -107,18 +108,56 @@ this code into the **Verifier code** text box in FlickrDL.
 
 8. Close the Add Login Account dialog.
 
+<a name="KnownIssues"></a>
+## Known Issues
+
+1. **Flickr time-out errors**
+
+    You may experience time-out or other communication errors when the program is
+    downloading data from Flickr. The program will attempt to recover from these errors by
+    retrying the commands, but this is not always successful. After 3 failed attempts the
+    program will display an error message and stop downloading.
+
+    About all you can do at this point is repeat the download of the albums that did not
+    complete. Check your output folder to see what albums were downloaded, and check the
+    number of photos in each folder vs the number of photos reported by FlickrDL. If the
+    number of photos match you do not need to re-download that album. If they do not
+    match, you should delete the folder and allow FlickrDL to re-download those photos.
+
+2. **Settings file moved in version 3.0**
+
+    In version 3.0 the file that contains the application settings was renamed and moved.
+    If you upgrade from an earlier version you will lose your settings, which will require
+    you to re-authenticate your Flickr accounts.
+
+    To avoid losing you settings you can manually move your settings file. In versions
+    before 3.0 the settings file was named ``FlickrDLSettings.xml`` and was
+    located in the same folder as the exe file. To use this file with version 3.0 or
+    later, rename the file to ``Settings.xml``, and move or copy it to
+    ``C:\Users\<username>\AppData\Roaming\FlickDL\``.
+
+3. **Does not download video files**
+
+    FlickrDL does not download video files. For videos, it downloads the "cover"
+    image, which is what displays when you browse to that video on Flickr.
+
+    Unfortunately, Flickr does not provide a reliable method for accessing the original
+    video file. If you need to download videos there are other tools such as
+    [Bulkr](https://getbulkr.com/)
+    that support this. However be careful when using other tools with images, because they
+    are not always reliable about copying tags from Flickr to the downloaded photo.
+
 ## License
 FlickrDL is licensed under the MIT license. You may use the FlickrDL application in any
 way you like. You may copy, distribute and modify the FlickrDL software provided you
 include the copyright notice and license in all copies of the software.
 
-FlickrDL links to libraries that are licensed under the Apache License or under a custom
-license which permits use and redistribution.
+FlickrAlbumSort links to a library that is licensed under the Apache 2.0 License.
 
 FlickrDL uses, but does not link to, the program exiftool.exe. ExifTool is licensed under
 the GNU General Public License (GPL) or the Artistic License. You may use the software in
-any way you like. You may copy, distribute and modify the exiftool software as long as you
-make the source code available.
+any way you like. You may copy and distribute the software. You may modify the exiftool
+software as long as you make the source code available.
 
 See the [License.txt](License.txt) file for additional information.
 

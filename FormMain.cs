@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Configuration;
 using System.Data;
 using System.Diagnostics;
 using System.Drawing;
@@ -26,6 +27,7 @@ namespace FlickrDL
             FlickrNet.PhotoSearchExtras.OwnerName |
             FlickrNet.PhotoSearchExtras.Tags |
             FlickrNet.PhotoSearchExtras.DateTaken;
+
         // Error message returned from BG search methods. Empty if no error.
         private string BGErrorMessage { get; set; }
 
@@ -41,7 +43,9 @@ namespace FlickrDL
 
         private bool FormIsLoaded { get; set; } = false;
 
-        private Stopwatch RunTimer { get; set; } = new Stopwatch();
+        // The number of times we will try some Flickr commands before giving up. This only applies to
+        // commands that can take a long time.
+        private const int FlickrMaxTries = 3;
 
         // Checkbox that is put in the header of the dgvPhotosets.
         private CheckBox cbHeader;
@@ -108,15 +112,14 @@ namespace FlickrDL
 
             // set up bindings
             chkDownloadAllPhotos.DataBindings.Add("Checked", Settings, "DownloadAllPhotos", true, DataSourceUpdateMode.OnPropertyChanged);
-            btnGetAlbums.DataBindings.Add("Enabled", Settings, "GetAlbumsEnabled");
+            btnGetAlbums.DataBindings.Add("Enabled", Settings, "GetAlbumsButtonEnabled");
+            btnDownload.DataBindings.Add("Enabled", Settings, "DownloadButtonEnabled");
             chkFilterDate.DataBindings.Add("Checked", Settings, "FilterByDate", true, DataSourceUpdateMode.OnPropertyChanged);
             dateTimePickerStart.DataBindings.Add("Value", Settings, "StartDate", true, DataSourceUpdateMode.OnPropertyChanged);
             dateTimePickerStart.DataBindings.Add("Enabled", Settings, "FilterDateEnabled");
             dateTimePickerStop.DataBindings.Add("Value", Settings, "StopDate", true, DataSourceUpdateMode.OnPropertyChanged);
             dateTimePickerStop.DataBindings.Add("Enabled", Settings, "FilterDateEnabled");
             txtOutputFolder.DataBindings.Add("Text", Settings, "OutputFolder");
-
-            Settings.UpdateEnabledProperties();
 
             FormIsLoaded = true;
         }
@@ -156,7 +159,7 @@ namespace FlickrDL
                 return;
             }
 
-            RunTimer.Start();
+            Stopwatch RunTimer = Stopwatch.StartNew();
 
             bool searchSuccessful = false;
             if (Settings.DownloadAllPhotos)
@@ -214,28 +217,28 @@ namespace FlickrDL
             }
         }
 
-        private bool OverwriteFile()
+        private bool IsDirectoryEmpty(string folderPpath)
         {
-            string filename = Settings.OutputFolder;
+            if (!Directory.Exists(folderPpath))
+                return true;
+            return !Directory.EnumerateFileSystemEntries(folderPpath).Any();   
+        }
+
+        private bool CheckFolderEmpty(string folderPath)
+        {
             try
             {
-                if (String.IsNullOrWhiteSpace(filename))
+                if (String.IsNullOrWhiteSpace(folderPath))
                 {
-                    MessageBox.Show("No output filename specified");
+                    MessageBox.Show("No output folder specified");
                     return false;
                 }
-                string folder = Path.GetDirectoryName(filename);
-                if (!Directory.Exists(folder))
-                {
-                    Directory.CreateDirectory(folder);
-                }
-                if (File.Exists(filename))
+                if (!IsDirectoryEmpty(folderPath))
                 {
                     DialogResult result = MessageBox.Show(
-                        "The file \"" + Path.GetFileName(filename) + "\" exists and will be overwritten.",
-                        "FlickrMetatdataDL", MessageBoxButtons.OKCancel);
-                    if (result == DialogResult.Cancel)
-                        return false;
+                        "The folder \"" + Path.GetFileName(folderPath) + "\" exists and is not empty.",
+                        "FlickrDL", MessageBoxButtons.OK);
+                    return false;
                 }
             }
             catch (Exception exc)
@@ -248,10 +251,10 @@ namespace FlickrDL
 
         private bool DownloadAllPhotos()
         {
-            if (!OverwriteFile())
+            if (!CheckFolderEmpty(Settings.OutputFolder))
                 return false;
 
-            FormProgress dlg = new FormProgress("Search all photos", BGDownloadAllPhotos);
+            FormProgress dlg = new FormProgress("Download all photos", BGDownloadAllPhotos);
 
             // Show dialog with Synchronous/blocking call.
             // BGDownloadAllPhotos() is called by dialog.
@@ -261,25 +264,29 @@ namespace FlickrDL
 
         private bool DownloadPhotosets()
         {
-            // Check for no photosets enabled
-            int count = 0;
+            // Check for existing photoset subfolders (with contents)
+            int enabledCount = 0;
             if (PhotosetList != null)
             {
                 foreach (Photoset ps in PhotosetList)
                 {
                     if (ps.EnableSearch)
-                        count++;
+                    {
+                        enabledCount++;
+                        string folderPath = Path.Combine(Settings.OutputFolder, ps.Title);
+                        if (!CheckFolderEmpty(folderPath))
+                            return false;
+                    }
                 }
             }
-            if (count == 0)
+            // Check for no photosets enabled
+            if (enabledCount == 0)
             {
                 MessageBox.Show("No albums enabled to search");
                 return false;
             }
-            if (!OverwriteFile())
-                return false;
 
-            FormProgress dlg = new FormProgress("Search albums", BGDownloadPhotosets);
+            FormProgress dlg = new FormProgress("Download albums", BGDownloadPhotosets);
 
             // Show dialog with Synchronous/blocking call.
             // BGDownloadPhotosets() is called by dialog.
@@ -355,7 +362,32 @@ namespace FlickrDL
                 FlickrNet.PhotoSearchExtras PhotosetExtras = 0;
                 do
                 {
-                    photoSets = f.PhotosetsGetList(SearchAccountUser.UserId, page, perPage, PhotosetExtras);
+                    bool success = false;
+                    for (int attempt = 0; attempt < FlickrMaxTries && !success; attempt++)
+                    {
+                        try
+                        {
+                            photoSets = f.PhotosetsGetList(SearchAccountUser.UserId, page, perPage, PhotosetExtras);
+                            success = true;
+                        }
+                        catch (FlickrNet.FlickrException ex)
+                        {
+                            // Save the *first* error message for display, not subsequent ones.
+                            if (attempt == 0)
+                                BGErrorMessage = "Album search failed. Flickr error: " + ex.Message;
+                        }
+                        catch (Exception ex)
+                        {
+                            if (attempt == 0)
+                                BGErrorMessage = "Album search failed. Unexpected Flickr error: " + ex.Message;
+                        }
+                    }
+                    if (!success)
+                    {
+                        return;
+                    }
+                    BGErrorMessage = "";
+
                     foreach (FlickrNet.Photoset ps in photoSets)
                     {
                         PhotosetList.Add(new Photoset(ps));
@@ -369,18 +401,24 @@ namespace FlickrDL
             }
             catch (FlickrNet.FlickrException ex)
             {
-                BGErrorMessage = "Album search failed. Error: " + ex.Message;
+                BGErrorMessage = "Album search failed. Flickr error: " + ex.Message;
+                return;
+            }
+            catch (Exception ex)
+            {
+                BGErrorMessage = "Album search failed. Unexpected error: " + ex.Message;
                 return;
             }
         }
 
+        // Background thread to download for photos
         private void BGDownloadAllPhotos(object sender, DoWorkEventArgs e)
         {
             BackgroundWorker worker = (BackgroundWorker)sender;
 
-            PhotoList = new SortableBindingList<Photo>();
-
             worker.ReportProgress(0, "Searching all photos");
+
+            PhotoList = new SortableBindingList<Photo>();
 
             FlickrNet.Flickr f = FlickrManager.GetFlickrAuthInstance();
             if (f == null)
@@ -403,7 +441,7 @@ namespace FlickrDL
                 options.Page = 1;
                 options.PerPage = 500;
 
-                FlickrNet.PhotoCollection photoCollection;
+                FlickrNet.PhotoCollection photoCollection = null;
                 do
                 {
                     if (worker.CancellationPending) // See if cancel button was pressed.
@@ -411,8 +449,34 @@ namespace FlickrDL
                         return;
                     }
 
-                    photoCollection = f.PhotosSearch(options);
-                    if (photoCollection.Total > 3999)
+                    // Try searching Flickr up to FlickrMaxTries times
+                    bool success = false;
+                    for (int attempt = 0; attempt < FlickrMaxTries && !success; attempt++)
+                    {
+                        try
+                        {
+                            photoCollection = f.PhotosSearch(options);
+                            success = true;
+                        }
+                        catch (FlickrNet.FlickrException ex)
+                        {
+                            // Save the *first* error message for display, not subsequent ones.
+                            if (attempt == 0)
+                                BGErrorMessage = "Search failed. Flickr error: " + ex.Message;
+                        }
+                        catch (Exception ex)
+                        {
+                            if (attempt == 0)
+                                BGErrorMessage = "Search failed. Unexpected Flickr error: " + ex.Message;
+                        }
+                    }
+                    if (!success)
+                    {
+                        return;
+                    }
+                    BGErrorMessage = "";
+
+                    if (photoCollection != null && photoCollection.Total > 3999)
                     {
                         BGErrorMessage = $"Too many photos: {photoCollection.Total}";
                         return;
@@ -432,7 +496,12 @@ namespace FlickrDL
             }
             catch (FlickrNet.FlickrException ex)
             {
-                BGErrorMessage = "Download failed. Error: " + ex.Message;
+                BGErrorMessage = "Search failed. Flickr error: " + ex.Message;
+                return;
+            }
+            catch (Exception ex)
+            {
+                BGErrorMessage = "Search failed. Unexpected Flickr error: " + ex.Message;
                 return;
             }
 
@@ -502,7 +571,34 @@ namespace FlickrDL
                                 return;
                             }
 
-                            photoCollection = f.PhotosetsGetPhotos(photoset.PhotosetId, SearchExtras, page, perpage);
+                            // Try searching Flickr up to FlickrMaxTries times
+                            bool success = false;
+                            for (int attempt = 0; attempt < FlickrMaxTries && !success; attempt++)
+                            {
+                                try
+                                {
+                                    photoCollection = f.PhotosetsGetPhotos(photoset.PhotosetId, SearchExtras, page, perpage);
+                                    success = true;
+                                }
+                                catch (FlickrNet.FlickrException ex)
+                                {
+                                    // Save the *first* error message for display, not subsequent ones.
+                                    if (attempt == 0)
+                                        BGErrorMessage = "Search failed. Flickr error: " + ex.Message;
+                                }
+                                catch (Exception ex)
+                                {
+                                    // Save the *first* error message for display, not subsequent ones.
+                                    if (attempt == 0)
+                                        BGErrorMessage = "Search failed. Unexpected Flickr error: " + ex.Message;
+                                }
+                            }
+                            if (!success)
+                            {
+                                return;
+                            }
+                            BGErrorMessage = "";
+
 #if false
                             // It is not clear from the documentation whether the limit of 4000 photos per search applies
                             // to album searches. If an album has more than 4000 photos, is the result of GetPhotos
@@ -515,7 +611,10 @@ namespace FlickrDL
 #endif
                             foreach (FlickrNet.Photo flickrPhoto in photoCollection)
                             {
-                                AddPhotoToList(f, flickrPhoto, photoset);
+                                if (!AddPhotoToList(f, flickrPhoto, photoset))
+                                {
+                                    return;
+                                }
                             }
                             // Calculate percent complete based on both how many photo sets we have completed,
                             // plus how many pages we have read
@@ -531,14 +630,19 @@ namespace FlickrDL
             }
             catch (FlickrNet.FlickrException ex)
             {
-                BGErrorMessage = "Search failed. Error: " + ex.Message;
+                BGErrorMessage = "Search failed. Flickr error: " + ex.Message;
+                return;
+            }
+            catch (Exception ex)
+            {
+                BGErrorMessage = "Search failed. Unexpected error: " + ex.Message;
                 return;
             }
 
             DownloadFiles(sender, e);
         }
 
-        private void AddPhotoToList(FlickrNet.Flickr f, FlickrNet.Photo flickrPhoto, Photoset photoset)
+        private bool AddPhotoToList(FlickrNet.Flickr f, FlickrNet.Photo flickrPhoto, Photoset photoset)
         {
             // Filter by date, if filter option enabled and date taken is known.
             if (!Settings.FilterByDate ||
@@ -548,16 +652,45 @@ namespace FlickrDL
                 Photo photo = new Photo(flickrPhoto, photoset);
                 PhotoList.Add(photo);
 
+                FlickrNet.PhotoInfo info = null;
+                    
                 // Get the photo info to get the raw tags, and put them into the photo object.
                 // The raw tags are as uploaded or entered -- with spaces, punctuation, and
                 // upper/lower case.
-                FlickrNet.PhotoInfo info = f.PhotosGetInfo(flickrPhoto.PhotoId);
+                // Try download from Flickr up to FlickrMaxTries times
+                bool success = false;
+                for (int attempt = 0; attempt < FlickrMaxTries && !success; attempt++)
+                {
+                    try
+                    {
+                        info = f.PhotosGetInfo(flickrPhoto.PhotoId);
+                        success = true;
+                    }
+                    catch (FlickrNet.FlickrException ex)
+                    {
+                        // Save the *first* error message for display, not subsequent ones.
+                        if (attempt == 0)
+                            BGErrorMessage = "Getting tags failed. Flickr error: " + ex.Message;
+                    }
+                    catch (Exception ex)
+                    {
+                        if (attempt == 0)
+                            BGErrorMessage = "Getting tags failed. Unexpected Flickr error: " + ex.Message;
+                    }
+                }
+                if (!success || info == null)
+                {
+                    return false;
+                }
+                BGErrorMessage = "";
+                
                 photo.Tags.Clear();
                 for (int i=0; i<info.Tags.Count; i++)
                 {
                     photo.Tags.Add(info.Tags[i].Raw);
                 }
             }
+            return true;
         }
 
         private void DownloadFiles(object sender, DoWorkEventArgs e)
@@ -584,11 +717,31 @@ namespace FlickrDL
                     string description = "Downloading " + photo.Title;
                     worker.ReportProgress(percent, description);
 
-                    // Download the image file.
-                    using (WebClient client = new WebClient())
+                    // Try download from Flickr up to FlickrMaxTries times
+                    bool success = false;
+                    for (int attempt = 0; attempt < FlickrMaxTries && !success; attempt++)
                     {
-                        client.DownloadFile(photo.OriginalUrl, filePath);
+                        try
+                        {
+                            // Download the image file.
+                            using (WebClient client = new WebClient())
+                            {
+                                client.DownloadFile(photo.OriginalUrl, filePath);
+                            }
+                            success = true;
+                        }
+                        catch (Exception ex)
+                        {
+                            if (attempt == 0)
+                                BGErrorMessage = "Download failed. Error: " + ex.Message;
+                        }
                     }
+                    if (!success)
+                    {
+                        return;
+                    }
+                    BGErrorMessage = "";
+
 
                     // Create a json file with the title, description, and keywords (Flickr tags).
                     string jsonFilePath = Path.ChangeExtension(filePath, ".json");
@@ -602,9 +755,9 @@ namespace FlickrDL
                     File.Delete(jsonFilePath);
                 }
             }
-            catch (Exception exc)
+            catch (Exception ex)
             {
-                BGErrorMessage = exc.Message;
+                BGErrorMessage = "Download failed. Unexpected error: " + ex.Message;
                 return;
             }
         }
@@ -668,9 +821,9 @@ namespace FlickrDL
         }
 
         // Create the full path to the destination file.
-        // Will create folder for the album name if necessary
-        // Will append _n (where n is a number) to the filename if needed to get
-        // a filename that does not already exist.
+        // Will create folder if necessary
+        // Will append _n (where n is a number) to the file name if needed to get
+        // a file name that does not already exist.
         private string GetDestinationFilePath(Photo photo)
         {
             string filePath = Settings.OutputFolder;
@@ -681,7 +834,7 @@ namespace FlickrDL
             // Make sure the folder exists, create it and all parent folders as necessary.
             Directory.CreateDirectory(filePath);
 
-            // Append the filename
+            // Append the file name
             filePath = Path.Combine(filePath, photo.Title);
 
             // Append the extension
@@ -835,19 +988,36 @@ namespace FlickrDL
 
         private void btnBrowseOutputFolder_Click(object sender, EventArgs e)
         {
-            Ookii.Dialogs.WinForms.VistaFolderBrowserDialog dlg = new Ookii.Dialogs.WinForms.VistaFolderBrowserDialog();
             string path = Settings.OutputFolder;
-            if (!string.IsNullOrWhiteSpace(path))
+            if (!string.IsNullOrEmpty(path))
             {
-                // Ookii dialogs does not support InitialDirectory. The best we can do is set SelectedPath.
-                // This opens to the folder most recently opened, but the path text box is set to the selected
-                // path.
-                dlg.SelectedPath = path;
+                // Sometimes the existing output folder has been deleted. Go up one level to see
+                // if that is there. If so, use it for the initial directory.
+                // If the initial directory doesn't exist, Windows will start from Documents.
+                if (!Directory.Exists(path)) 
+                {
+                    // Remove any trailing backslash
+                    path = path.TrimEnd(new[] { '/', '\\' });
+                    DirectoryInfo parentDir = Directory.GetParent(path);
+                    if (parentDir != null) 
+                    {
+                        path = parentDir.FullName;
+                    }
+                }
             }
-            DialogResult result = dlg.ShowDialog();
-            if (result == DialogResult.OK)
+
+            FolderSelectDialog dlg = new FolderSelectDialog()
             {
-                Settings.OutputFolder = dlg.SelectedPath;
+                Title = "Select output folder"
+            };
+            if (!string.IsNullOrEmpty(path))
+            {
+                dlg.InitialDirectory = path;
+            }
+            
+            if (dlg.Show(Handle))
+            {
+                Settings.OutputFolder = dlg.FileName;
             }
         }
     }

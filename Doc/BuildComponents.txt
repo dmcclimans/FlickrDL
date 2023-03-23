@@ -1,9 +1,5 @@
-FlickrDL Version            2.0
-    Visual Studio 2019      16.4.3
+FlickrDL Version            3.0     2023-03-23
+    Visual Studio 2022      17.5.1
     FlickrNet               3.26.0
-    Ookii.Dialogs.Winforms  1.1.0
-    Pandoc                  2.9.1
-    Miktex                  2.9.7206
-    exiftools               11.84
-
+    exiftools               12.58
 
